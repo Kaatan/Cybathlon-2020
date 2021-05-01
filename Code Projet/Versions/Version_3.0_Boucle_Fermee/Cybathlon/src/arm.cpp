@@ -1,7 +1,6 @@
-#include "arm.h"
+#include "../include/arm.h"
 #include <Arduino.h>
-#include <Servo.h>
-#include <Stepper.h>
+
 #include <stdio.h>
 
 
@@ -68,6 +67,8 @@ Arm::Arm(float new_arm, float new_forearm, float new_wrist){
 
 
 void Arm::input_processing(){
+
+    float length = sqrt(x * x + z * z);
     
     if (!(length > arm + forearm - MAX_INPUT || x < 0)) { 
         //vérification qu'il n'est pas possible d'aller plus loin que ce qui est possible, par exemple x<0 est non autorisé.
@@ -204,40 +205,48 @@ int signof(float a){
     }
 }
 
+
+// A changer ! Désormais le reset va poser le bras dans une position forcée. Le mouvement sera réalisé dans le main, cette fonction ne sert plus qu'à mettre les bonnes variables dans le robot.
 void Arm::reset(){
 
-    int X_INIT = 10;
-    int Y_INIT = 0;
-    int Z_INIT = 0;
+    x = 10;
+    y=0;
+    z=0;
 
-    if (is_reseting) { //If pas nécessaire, puisque cette vérification sera sans doute faite avant l'appel de la fonction.
+    // Cette fonction servira à initialiser les valeurs de position du robot.
+
+    // int X_INIT = 10;
+    // int Y_INIT = 0;
+    // int Z_INIT = 0;
+
+    // if (is_reseting) { //If pas nécessaire, puisque cette vérification sera sans doute faite avant l'appel de la fonction.
             
 
-        if (x < X_INIT - MAX_INPUT || x > X_INIT + MAX_INPUT) {
-            input_x = MAX_INPUT/2 * signof(-(x - X_INIT))
-            input_y = 0;
-            input_z = 0;
-            Input_Processing();
-        }
-        else if (z < Z_INIT - MAX_INPUT || z > Z_INIT + MAX_INPUT) {
-            input_z = MAX_INPUT/2 * signof(-(z - Z_INIT));
-            input_y = 0;
-            input_x = 0;
-            Input_Processing();
-        }
-        else if (y < Y_INIT - MAX_INPUT || y > Y_INIT + MAX_INPUT) {
-            input_y = MAX_ROTATION_INPUT/2 * signof(-(y - Y_INIT));
-            input_x = 0;
-            input_z = 0;
-            Input_Processing();
-        }
+    //     if (x < X_INIT - MAX_INPUT || x > X_INIT + MAX_INPUT) {
+    //         input_x = MAX_INPUT/2 * signof(-(x - X_INIT));
+    //         input_y = 0;
+    //         input_z = 0;
+    //         Input_Processing();
+    //     }
+    //     else if (z < Z_INIT - MAX_INPUT || z > Z_INIT + MAX_INPUT) {
+    //         input_z = MAX_INPUT/2 * signof(-(z - Z_INIT));
+    //         input_y = 0;
+    //         input_x = 0;
+    //         Input_Processing();
+    //     }
+    //     else if (y < Y_INIT - MAX_INPUT || y > Y_INIT + MAX_INPUT) {
+    //         input_y = MAX_ROTATION_INPUT/2 * signof(-(y - Y_INIT));
+    //         input_x = 0;
+    //         input_z = 0;
+    //         Input_Processing();
+    //     }
 
 
-        else {
-            is_reseting = false;
-            //std::cout << "Reset done.\n";
-        }
-    }
+    //     else {
+    //         is_reseting = false;
+    //         //std::cout << "Reset done.\n";
+    //     }
+    // }
 
 
 }

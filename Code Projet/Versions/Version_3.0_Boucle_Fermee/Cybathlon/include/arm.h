@@ -43,7 +43,7 @@ class Arm {
         // Constructeur. A utiliser une fois au démarrage du robot pour initialiser les valeurs. 
         // Les seules valeurs à fixer avec le constructeur sont les valeurs des longueurs.
 
-        init();
+        void init();
 
         void reset();
         // Méthode pour réinitialiser le robot
@@ -53,7 +53,7 @@ class Arm {
         // A appeler avant input_processing. 
         // Modifie donc les valeurs du bras
 
-        void captor_update(float cpt_alpha, float cpt_beta, float cpt_eta);
+        void captor_update(float cpt_alpha, float cpt_beta);
         // Reçoit les valeurs des capteurs et met à jour toutes les données nécessaires dans la classe :  les angles des capteurs, mais aussi la position du robot en fonction des capteurs.
         // A lancer avant l'input processing pour éviter un décalage entre le calcul et la réalité, mais également à chaque tour de boucle pour l'asservissement.
 

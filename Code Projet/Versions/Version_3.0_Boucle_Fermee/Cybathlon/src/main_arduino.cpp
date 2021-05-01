@@ -19,6 +19,8 @@ const int shoulderMotorDirect = 3;
 const int shoulderMotorIndirect = 4;
 const int elbowMotorDirect = 5;
 const int elbowMotorIndirect = 6;
+const int rotationMotorDirect = 7;
+const int rotationMotorIndirect = 8;
 // Déclaration des MCC
 
 
@@ -49,6 +51,11 @@ const float wrist = 10;
 const int freq = 60;
 // les inputs sont reçus de l'application à une fréquence de 60 Hz. 
 
+const float stepper_modifier = 1.5;
+// Modificateur pour transformer l'input
+const int number_steps = 200;
+const int step_angle = 360 / number_steps; // = 1.8 degrés, à combiner avec le réducteur de 40.
+
 
 // const int Tour=0; // Déclaration variable nombre de tour
 // const int delayTime=8; // Déclaration variable vitesse du moteur
@@ -64,11 +71,20 @@ int cur = 0;
 float vit_alpha = 0;
 float vit_beta = 0;
 float vit_rotation = 0;
+int pow_stepper = 0;
+int old_pow_stepper = 0;
 // Vitesses/puissances demandées aux moteurs des angles alpha et beta.
 
+// Note : pour le stepper, on doit transcrire une position en nombre de steps à effectuer.
+// Il y aura deux modifications pour le stepper : 
+// La première aura lieu toutes les 1/60 secondes en même temps que le serial. 
+// On va simplement regarder la valeur de bêta, si possible par rapport à la valeur précédente, pour avoir la valeur de déplacement à donner au stepper pour redresser le mouvement
+// La seconde aura lieu seulement lorsque le serial l'exigera et shiftera la position par défaut dyu stepper pour changer l'angle natif. 
+
+
 //variables de temps pour les capteurs
-float interval = 1/1000;
-// Les capteurs vont tourner à 1000 Hz
+int interval = 1;
+// en ms. Les capteurs vont tourner à 1000 Hz
 long previousMillis = 0;
 long currentMillis = 0;
 // pour compter le temps
@@ -87,6 +103,8 @@ void setup{
     pinMode(shoulderMotorIndirect, OUTPUT);
     pinMode(elbowMotorDirect, OUTPUT);
     pinMode(elbowMotorIndirect, OUTPUT);
+    pinMode(rotationMotorDirect, OUTPUT);
+    pinMode(rotationMotorIndirect, OUTPUT);
     // Init des mcc
 
     // pinMode(MotorPin1, OUTPUT); // Affectation de la sortie digitale n°8
@@ -96,6 +114,9 @@ void setup{
     
     // Init du Stepper
     stepperMotor.setSpeed(20);
+
+    encoderInit();
+    // Initialise les encodeurs
 
 }
 
@@ -111,33 +132,8 @@ void loop{
     // Bloc récupération des données capteurs. A lancer avant la réception des inputs serial.
     // Boucle pour les capteurs
 
-    currentMillis = millis();
-
-    if ( (currentMillis - previousMillis) > interval) {
-        
-        previousMillis = currentMillis;
-
-
-        // vitesse de rotation =
-        // (total encoder pulse in 1/1000s / motor encoder output) x 1000ms / 2*pi
-        cpt_shoulder_vit = (float)(shoulderEncoderValue * 1000 / (2 * 3.141592 * encoder_PPR));
-        cpt_elbow_vit = (float)(elbowEncoderValue * 1000 / (2 * 3.141592 * encoder_PPR));
-
-        robot.captor_update(cpt_shoulder_vit, cpt_elbow_vit);
-
-        // Only update display when there have readings
-        // if ( rpm > 0) {
-        // Serial.print(encoderValue);
-        // Serial.print(" pulse / ");
-        // Serial.print(ENCODEROUTPUT);
-        // Serial.print(" pulse per rotation x 60 seconds = ");
-        // Serial.print(rpm);
-        // Serial.println(" RPM");
-        // }
-        
-        shoulderEncoderValue = 0;
-        elbowShoulderValue = 0;
-    }
+    captor_activation();
+    // Boucle à 1000Hz qui récupère les données des capteurs.
 
     // Réception des données
 
@@ -159,7 +155,11 @@ void loop{
             // Réinitialisation du buffer.
 
             robot.input_processing();
-            // Processing des données pour obtenir la position voulue et les angles voulus (appelle angle processing)
+            // Processing des données pour obtenir la position voulue et les angles voulus (appelle angle processing).
+            // On en déduit alpha, beta et eta. 
+
+            // Ici on fera tourner la boucle pour le pas à pas. Contrairement aux autres moteurs, le pas à pas sera activé seulement à 60 Hz et prendra en compte la différence d'angle entre l'étape courante et l'étape précédente + l'offset demandé par l'utilisateur.
+
             
         }
     }
@@ -187,6 +187,8 @@ void loop{
     }
 
 
+
+
     // Activation des moteurs avec la puissance donnée :
     
     activate_shoulder();
@@ -195,6 +197,8 @@ void loop{
 
     activate_rotation();
 
+    activate_wrist();
+
 
 }
 
@@ -202,12 +206,16 @@ void loop{
 // Fonctions pour activer les moteurs
 
 void activate_shoulder(){
+
+    // Vérification des bornes
     if (vit_alpha>255){
         vit_alpha = 255;
     }
     else if (vit_alpha<-255){
         vit_alpha = -255;
     }
+    
+    // Activation des moteurs dans le sens correspondant.
     if (vit_alpha > 0){
         analogWrite(shoulderMotorDirect, vit_alpha);
         analogWrite(shoulderMotorIndirect,0);
@@ -219,12 +227,16 @@ void activate_shoulder(){
 }
 
 void activate_elbow(){
+
+    // Vérification des bornes
     if (vit_beta > 255){
         vit_beta = 255;
     }
     else if (vit_beta < -255){
         vit_beta = -255
     }
+
+    // Activation des moteurs dans le sens correspondant.
     if (vit_beta > 0){
         analogWrite(elbowMotorDirect,vit_beta);
         analogWrite(elbowMotorIndirect,0);
@@ -236,33 +248,110 @@ void activate_elbow(){
 }
 
 void activate_rotation(){
-    int rapp = 10;
-    // multiplicateur entre le nombre de tours et l'input. A modifier pour avoir la valeur qu'on veut.
-    
-    stepperMotor.setSpeed(rapp * robot.input_y);
+    if (vit_rotation > 255){
+        vit_rotation = 255;
+    }
+    else if (vit_rotation < -255){
+        vit_rotation = -255
+    }
+    if (vit_rotation > 0){
+        analogWrite(rotationMotorDirect,vit_rotation);
+        analogWrite(rotationMotorIndirect,0);
+    }
+    else{
+        analogWrite(rotationMotorIndirect, -vit_rotation);
+        analogWrite(rotationMotorDirect,0);
+    }
+}
+
+void activate_wrist(){
+
+    stepperMotor.setSpeed(20);
+    // /!\ Vitesse variable ! Le poignet est activé régulièrement afin de se maintenir à l'horizontale.
     stepperMotor.step(500);
-    // Tourne 500 steps avec une vitesse dépendant de l'input_y.
+    // Tourne X steps avec une vitesse dépendant de l'input_y. Il faudra synchroniser à la fois la vitesse et le déplacement. On ne peut pas asservir cette partie car le stepper n'est pas asservi !
 
 }
 
 
 // Fonctions pour activer les capteurs
 
-void EncoderInit()
+void encoderInit()
 {
- // Attach interrupt at hall sensor A on each rising signal
-  attachInterrupt(digitalPinToInterrupt(shoulder_cpt), updateShoulderEncoder, RISING);
-  attachInterrupt(digitalPinToInterrupt(elbow_cpt), updateElbowEncoder, RISING);
+     // Attach interrupt at hall sensor A on each rising signal
+    attachInterrupt(digitalPinToInterrupt(shoulder_cpt), updateShoulderEncoder, RISING);
+    attachInterrupt(digitalPinToInterrupt(elbow_cpt), updateElbowEncoder, RISING);
 }
 
 void updateShoulderEncoder()
 {
-  // Add encoderValue by 1, each time it detects rising signal
-  shoulderEncoderValue++;
+    // Add encoderValue by 1, each time it detects rising signal
+    shoulderEncoderValue++;
 }
 
 void updateElbowEncoder()
 {
-  // Add encoderValue by 1, each time it detects rising signal
-  elbowEncoderValue++;
+    // Add encoderValue by 1, each time it detects rising signal
+    elbowEncoderValue++;
+}
+
+
+void captor_activation(){
+    currentMillis = millis();
+
+    if ( (currentMillis - previousMillis) > interval) {
+        
+        previousMillis = currentMillis;
+
+
+        // vitesse de rotation =
+        // (total encoder pulse in 1/1000s / motor encoder output) x 1000ms / 2*pi
+        cpt_shoulder_vit = (float)(shoulderEncoderValue * 1000 / (2 * 3.141592 * encoder_PPR));
+        cpt_elbow_vit = (float)(elbowEncoderValue * 1000 / (2 * 3.141592 * encoder_PPR));
+        //  /!\ PRENDRE EN COMPTE LE REDUCTEUR AJOUTE DE 40 POUR LE CAPTOR UPDATE !
+
+        robot.captor_update(cpt_shoulder_vit, cpt_elbow_vit);
+
+        // Only update display when there have readings
+        // if ( rpm > 0) {
+        // Serial.print(encoderValue);
+        // Serial.print(" pulse / ");
+        // Serial.print(ENCODEROUTPUT);
+        // Serial.print(" pulse per rotation x 60 seconds = ");
+        // Serial.print(rpm);
+        // Serial.println(" RPM");
+        // }
+        
+        shoulderEncoderValue = 0;
+        elbowShoulderValue = 0;
+    }
+}
+
+// Réinitialise le robot dans une position sûre.
+// Idéalement doit créer une boucle interne. 
+void reset(){
+
+    vit_alpha = -50;
+    vit_beta = +50;
+    // valeurs arbitraires. On rétracte le bras vers le corps et l'avant bras vers le bras.
+
+    while (vit_alpha !=0 && vit_beta!=0){
+
+        activate_elbow();
+        activate_shoulder();
+        captor_activation();
+
+        if (cpt_shoulder_vit > -0.1) {
+            vit_alpha -= 1;
+            // cpt_shoulder en rad.s-1
+        }
+        if (cpt_shoulder_vit < 0.1) {
+            vit_alpha -= 1;
+        }
+        // Si les capteurs détectent une résistance suffisante pour limite arrêter le bras, on baisse fortement la vitesse. 
+        
+    }
+
+
+    
 }
