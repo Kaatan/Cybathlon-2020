@@ -5,12 +5,12 @@
 
 
 // Données globales
-float fps = 60; // En Hz
+float freq = 10; // En Hz
 
 int Max_speed = 60;//En cm par seconde
 
-float MAX_INPUT = Max_speed / fps;//d�lacement max par frame/période
-float MAX_ROTATION_INPUT = 1.2 / fps; //radian.s-1 de rotation de l'axe vertical, arbitraire
+float MAX_INPUT = Max_speed / freq;//d�lacement max par période
+float MAX_ROTATION_INPUT = 1.2 / freq; //radian.s-1 de rotation de l'axe vertical, arbitraire
 
 
 
@@ -94,7 +94,7 @@ void Arm::input_processing(){
         // Calcul de la longueur entre le poignet et l'épaule. Permet entre autres choses de vérifier qu'on ne demande pas un acte impossible au bras.
 
         angle_processing();
-        // Mise à jour des angles compte tenu de la position désirée.
+        // Mise à jour des angles compte tenu de la position désirée. Ces angles devront être proches ou égaux aux angles des capteurs. 
 
         x = x_p + (arm * cos(alpha) + forearm * cos(alpha + beta));
         z = z_p +  (arm * sin(alpha) + forearm * sin(alpha + beta)); 
@@ -112,7 +112,7 @@ void Arm::angle_processing(){
     alpha_p = alpha;
     beta_p = beta;
     eta_p = eta;
-    // Sauvegarde des anciens angles. Potentiellement inutile. 
+    // Sauvegarde des anciens angles. Potentiellement inutile ? 
 
 
     float X = (arm * arm - forearm * forearm + x * x + z * z) / (2 * arm);
@@ -122,10 +122,10 @@ void Arm::angle_processing(){
 
     float phi = acos(z / length);
     float xi = asin(X / length);
-    // Angles
+    // Angles pou la suite des calculs
 
     alpha = xi - phi; 
-    //La solution qui marche (l'autre ne parche pas pour z négatif)
+    //La solution qui marche (il y en a une autre qui ne marche pas pour z négatif).
 
 
     double inside_c = (x - arm * cos(alpha)) / forearm; 
@@ -157,44 +157,91 @@ void Arm::angle_processing(){
 
 }
 
-void Arm::serial_processing(char* str){
+float Arm::serial_processing(char* str){
     
     
-    char* format = "Joystick X = %f, Joystick Y = %f, Button is %d, Reset is %d, joystick Max is : %f";
+    
+
+    // char format[];
     // X est l'axe horizontal, Y vertical.
     // Format du string qu'il doit y avoir en entrée. X et Y valent une valeur quelconque entre des bornes définies par Max.
     // Button sert à déterminer si on est en mode click ou non click, ce qui détermine comment on se sert du bras.
     // Idéalement max est reçu une seule fois puis est fixé. Ou encore mieux, fixé des deux côtés sans avoir à faire de sérial...
 
-    float X, Y, max;
-    int B, R;
 
-    if (is_reseting){
-        sscanf(format, str, &X, &Y, &B, &R, &max);
 
-        input_y = X/max * MAX_ROTATION_INPUT;
-        // La rotation latérale de l'épaule est déterminée par l'axe horizontal du joystick.
+    // str = "Joystick X = 5, Joystick Y = 5, Wrist Angle is 5,  Button is 5, Reset is 5, joystick Max is : 5\n";
 
-        if(B==0){ // Mode cliqué : X dirige d'avant en arrière.
-            input_x = Y/max * MAX_INPUT;
-            input_z = 0;
-            // Bien réinitialiser input_z à zéro ! Sinon il gardera sa valeur précédente.
-        }
-        else{
-            input_z = Y/max * MAX_INPUT;
-            input_x = 0;
-        }
+    Serial.write("Received buffer (in processing): ");
+                Serial.write(str);
+                Serial.write("\n");
+    
 
-        if (R == 1) {
-            reset();
-        }
+    int X, Y, max;
+    X = 2;
+    Y = 2;
+    max = 2;
+
+    int wrist_default_angle, B, R;
+
+    int blub = sscanf(str, "Joystick X = %d, Joystick Y = %d, Wrist Angle is %d,  Button is %d, Reset is %d, joystick Max is : %d", &X, &Y, &wrist_default_angle, &B, &R, &max);
+
+    Serial.write("nombre de valeurs remplacées : ");
+    Serial.print(blub);
+    Serial.write("\n");
+
+
+    Serial.write("valeur de X : ");
+    Serial.println(X);
+    Serial.write("\n");
+
+     
+
+
+    // float X, Y, max;
+    // int B, R, wrist_default_angle;
+    // X=0;
+    // Y=0;
+    // max=0;
+    
+
+    // // if (is_reseting){
+    // sscanf(str, "Joystick X = %f, Joystick Y = %f, Wrist Angle is %d,  Button is %d, Reset is %d, joystick Max is : %f", &X, &Y, &wrist_default_angle, &B, &R, &max);
+
+    // "Joystick X = " + valX + ", Joystick Y = "+ val_Y", Wrist Angle is " + ValBarre+",  Button is "+ +", Reset is " + état du bouton (entier, 0 ou 1)+ ", joystick Max is : "+ Valeur max du joystick
+    input_y = X/max * MAX_ROTATION_INPUT;
+    // La rotation latérale de l'épaule est déterminée par l'axe horizontal du joystick.
+
+    wrist_base_angle = wrist_default_angle;
+
+    if(B==0){ // Mode cliqué : X dirige d'avant en arrière.
+        input_x = Y/max * MAX_INPUT;
+        input_z = 0;
+        // Bien réinitialiser input_z à zéro ! Sinon il gardera sa valeur précédente.
     }
+    else{
+        input_z = Y/max * MAX_INPUT;
+        input_x = 0;
+    }
+
+    if (R == 1) {
+        reset();
+    }
+    
+
+    return R;
+
+
+    // }
     
     // Si la machine est e train de reset, aucune commande ne sera lue tant qu'elle n'a pas fini de le faire.
     
 
 }
 
+int Arm::get_wrist_base_angle(){
+    return wrist_base_angle;
+}
 
 int signof(float a){
     if (a<0){
@@ -209,55 +256,41 @@ int signof(float a){
 // A changer ! Désormais le reset va poser le bras dans une position forcée. Le mouvement sera réalisé dans le main, cette fonction ne sert plus qu'à mettre les bonnes variables dans le robot.
 void Arm::reset(){
 
-    x = 10;
-    y=0;
-    z=0;
+    x = 9.5;
+    y = 0;
+    z = 3.5;
+    angle_processing();
+  
 
-    // Cette fonction servira à initialiser les valeurs de position du robot.
-
-    // int X_INIT = 10;
-    // int Y_INIT = 0;
-    // int Z_INIT = 0;
-
-    // if (is_reseting) { //If pas nécessaire, puisque cette vérification sera sans doute faite avant l'appel de la fonction.
-            
-
-    //     if (x < X_INIT - MAX_INPUT || x > X_INIT + MAX_INPUT) {
-    //         input_x = MAX_INPUT/2 * signof(-(x - X_INIT));
-    //         input_y = 0;
-    //         input_z = 0;
-    //         Input_Processing();
-    //     }
-    //     else if (z < Z_INIT - MAX_INPUT || z > Z_INIT + MAX_INPUT) {
-    //         input_z = MAX_INPUT/2 * signof(-(z - Z_INIT));
-    //         input_y = 0;
-    //         input_x = 0;
-    //         Input_Processing();
-    //     }
-    //     else if (y < Y_INIT - MAX_INPUT || y > Y_INIT + MAX_INPUT) {
-    //         input_y = MAX_ROTATION_INPUT/2 * signof(-(y - Y_INIT));
-    //         input_x = 0;
-    //         input_z = 0;
-    //         Input_Processing();
-    //     }
+    cpt_alpha=alpha;
+    cpt_beta=beta;
+    // cpt_eta=eta;    
+    // les valeurs des capteurs doivent également être initialisées. 
 
 
-    //     else {
-    //         is_reseting = false;
-    //         //std::cout << "Reset done.\n";
-    //     }
-    // }
+
+
 
 
 }
 
-void Arm::captor_update(float alpha_vit, float beta_vit){
+void Arm::captor_update(float alpha_change, float beta_change){
 
-    cpt_alpha += alpha_vit/1000;
-    cpt_beta += beta_vit/1000;
-
-
-
+    cpt_alpha += alpha_change;
+    cpt_beta += beta_change;
     // Des variables globales devront être définies pour définir le 0 des capteurs. En effet le capteur ne donnera pas nécessairement 0 à son démarrage, mais
     // un angle actuel selon son paramétrage. Il faudra cette valeur pour définir proprement le 0 ainsi que les angles par défauts, qui donnent ensuite la position.
+}
+
+
+float Arm:: get_alpha_diff(){
+    return alpha - alpha_p;
+}
+
+float Arm:: get_beta_diff(){
+    return beta - beta_p;
+}
+
+float Arm:: get_real_beta_diff(){
+    return cpt_beta - beta_p;
 }

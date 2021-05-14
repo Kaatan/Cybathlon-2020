@@ -2,29 +2,33 @@
 #include <Servo.h>
 #include <Stepper.h>
 #include "arm.h"
-#include <stdio.h>
 
 
-// // #DEFINE ENCODEROUTPUT 64*4
+// #DEFINE ENCODEROUTPUT 64*4
 
 
 // Constants 
 
+const int serialInput = 0;
+
+const int enableBridge1 = 22;
+const int enableBridge2 = 23;
+// Initialisation des ponts en H
 
 // Déclaration des ports capteurs.
-const int shoulder_cpt = 18;
-const int shoulder_cpt_dir = 19;
-const int elbow_cpt = 20;
-const int elbow_cpt_dir = 21;
+const int shoulder_cpt = 28;
+const int elbow_cpt = 29;
+const int shoulder_cpt_dir = 30;
+const int elbow_cpt_dir = 31;
 // Le port sans nom est le premier port de réception. Le port _2 correspond à l'input donnant le sens de rotation. 
 
 
-volatile int shoulderEncoderValue = 0; 
-volatile int elbowEncoderValue = 0;
+int shoulderEncoderValue = 0; 
+int elbowEncoderValue = 0;
 // Compteurs
 float cpt_shoulder_vit = 0;
 float cpt_elbow_vit = 0;
-const int encoder_PPR = 2803/4;
+const int encoder_PPR = 4*2803;
 
 
 
@@ -40,7 +44,7 @@ const int encoder_PPR = 2803/4;
 
 
 const float arm = 25;
-const float foreArm = 25;
+const float foreArm = 10;
 const float wrist = 10;
 // Déclaration des tailles des membres, en cm.
  
@@ -57,13 +61,12 @@ int stepper_base = 0; //Sauvegarde de la position du stepper. utilisé lorsque d
 // const int delayTime=8; // Déclaration variable vitesse du moteur
 
 
+
 // Variables Serial
 char buf[1024]; 
 int cur = 0;
 // Buffer qui contiendra le message serial reçu. Ce message pourrait être incomplet vu que l'arduino tourne très vite.
 // Cur est la position du curseur qui parcourt le message
-bool validBuf = false;
-// Booléen mettant le programme au courant lorsqu'un buffer complet est reçu.
 
 float vit_alpha = 0;
 float vit_beta = 0;
@@ -85,13 +88,11 @@ const long serial_interval = 100000;
 
 
 
-long loop_duration = 1;
-long serial_loop_duration = 1;
-// temps s'étant réellement écoulé en us entre les deux activations des capteurs et entre deux réceptions serial. Variable.
+int loop_duration = 0;
+// temps s'étant réellement écoulé en ms entre les deux activations des capteurs. Variable.
 
 long previousMicros = 0;
 long currentMicros = 0;
-// long currentMicrosSerial = 0;
 long previousMicrosSerial = 0;
 // pour compter le temps
 
@@ -105,7 +106,7 @@ const int rotationMotorDir = 2;
 
 
 // Déclaration du stepper
-Stepper* stepperMotor = new Stepper(number_steps, 24, 25, 26, 27);
+Stepper stepperMotor(number_steps,24,25,26,27);
 
 
 
@@ -122,14 +123,14 @@ void asserve_shoulder(){
     int sgn_cpt = signof(cpt_shoulder_vit);
 
     // On compare les valeurs obsolues
-    if (sgn_cpt*(cpt_shoulder_vit) < sgn_target * robot->get_alpha_diff() *  ( 1000000 / ( serial_loop_duration ) ) ){
+    if (sgn_cpt*(cpt_shoulder_vit) < sgn_target * robot->get_alpha_diff() *  ( 1000000 / ( serial_interval ) ) ){
         // Si la vitesse de rotation, en radians en valeur absolue, est inférieure à la valeur absolue de la différence d'angles divisé par la période (ce qui donne une vitesse de rotation)
-        // *1000000/serial_interval car (robot->alpha - robot->alpha_p) est un angle, on divise par la période d'acquisition des inputs en s pour avoir une vitesse
+        // *1000000/serial_interval car (robot->alpha - robot->alpha_p) est un angle, on divise par la période d'acquisition des inputs pour avoir une vitesse
 
-        vit_alpha += 10 * sgn_target ;
+        vit_alpha += 1 * sgn_target ;
     }
     else {
-        vit_alpha -= 10 * sgn_cpt;
+        vit_alpha -= 1 * sgn_cpt;
     }
 
     // Justifier l'utilisation de target ou cpt selon la différence avec le tableau.
@@ -141,12 +142,12 @@ void asserve_elbow(){
     int sgn_target = signof(robot->get_beta_diff());
     int sgn_cpt = signof(cpt_elbow_vit);
 
-    if (sgn_cpt * cpt_elbow_vit < sgn_target* robot->get_beta_diff()*( 1000000 / ( serial_loop_duration ) )){
+    if (sgn_cpt * cpt_elbow_vit < sgn_target* robot->get_beta_diff()*( 1000000 / ( serial_interval ) )){
         
-        vit_beta += sgn_target * 10;
+        vit_beta += sgn_target * 0.1;
     }
     else {
-        vit_beta -= sgn_cpt * 10;
+        vit_beta -= sgn_cpt * 0.1;
     }
 }
 
@@ -199,8 +200,6 @@ void activate_elbow(){
 }
 
 void activate_rotation(){
-
-    // vit_rotation = +200;
     if (vit_rotation > 255){
         vit_rotation = 255;
     }
@@ -208,26 +207,19 @@ void activate_rotation(){
         vit_rotation = -255;
     }
     if (vit_rotation > 0){
-        digitalWrite(rotationMotorDir, HIGH);
-        analogWrite(rotationMotorPwm, vit_rotation);
-        // Serial.print(vit_rotation);
-        // DROITE
-        // Serial.print("Turning in normal direction\n");
-
+        digitalWrite(rotationMotorDir,HIGH);
+        analogWrite(rotationMotorPwm,vit_rotation);
     }
     else{
-        digitalWrite(rotationMotorDir, LOW);
+        analogWrite(rotationMotorDir,LOW);
         analogWrite(rotationMotorPwm, -vit_rotation);
-        // GAUCHE
-        // Serial.print(- vit_rotation);
-        // Serial.print("Turning in opposite direction\n");
     }
 }
 
 void activate_wrist(int steps){
 
    
-    stepperMotor->step(steps);
+    stepperMotor.step(steps);
     // Tourne X steps avec une vitesse dépendant de l'input_y. Il faudra synchroniser à la fois la vitesse et le déplacement. On ne peut pas asservir cette partie car le stepper n'est pas asservi !
 
 }
@@ -248,8 +240,6 @@ void updateShoulderEncoder()
         else {
         shoulderEncoderValue--;
         }
-        // Serial.print("Called udpateShoulderEncoder\n");
-        
     
   
     
@@ -260,11 +250,10 @@ void updateElbowEncoder()
     
     if (digitalRead(elbow_cpt_dir) == HIGH) {
         elbowEncoderValue++;
-    }
-    else {
+        }
+        else {
         elbowEncoderValue--;
-    }
-    // Serial.print("Called updateElbowEncoder\n");
+        }
 }
 
 void encoderInit()
@@ -299,11 +288,10 @@ void captor_activation(){
     robot->captor_update(cpt_shoulder_vit/40, cpt_elbow_vit/40);
     // On divise par 40, car la vitesse des capteurs est celle du moteur, mais il y a une vis de réduction de 40 entre le moteur et le bras : le bras bouge donc à une vitesse réduite par 40
     // On envoie la modification au robot
-    
-    float duration_sec = loop_duration/(float)1000000;
-    
-    cpt_elbow_vit = cpt_elbow_vit / duration_sec;
-    cpt_shoulder_vit = cpt_shoulder_vit / duration_sec;
+
+
+    cpt_elbow_vit /= (float)(loop_duration*1000000);
+    cpt_shoulder_vit /= (float)(loop_duration*1000000);
     // On divise par la durée du tour ramenée en seconde pour avoir une vitesse, qui servira pour les autres fonctions.
 
 
@@ -315,25 +303,7 @@ void captor_activation(){
     // Serial.print(" pulse per rotation x 60 seconds = ");
     // Serial.print(rpm);
     // Serial.println(" RPM");
-    // // }
-
-    // Serial.print("Loop Duration : ");
-    // Serial.print(loop_duration);
-    // Serial.print(" || duration sec : ");
-    // Serial.print(duration_sec);
-
-    // Serial.print(" ||Vitesse de l'épaule : ");
-    // Serial.print(cpt_shoulder_vit);
-    // Serial.print(", nombre d'encodages :");
-    // Serial.print(shoulderEncoderValue);
-    // Serial.write(" || ");
-
-    // Serial.print("Vitesse du coude : ");
-    // Serial.print(cpt_elbow_vit);
-    // Serial.print(", nombre d'encodages :");
-    // Serial.print(elbowEncoderValue);
-    // Serial.write("\n");
-    
+    // }
     
     shoulderEncoderValue = 0;
     elbowEncoderValue = 0;
@@ -347,70 +317,29 @@ void reset(){
     vit_alpha = 0;
     vit_beta = 0;
     // On réinitialise les vitesses à 0.
-    activate_shoulder();
-    activate_elbow();
 
     bool stop_shoulder = 0;
     bool stop_elbow = 0;
     // Booléens d'arrêt de boucles.
 
     // On attend une seconde avant le début de la première phase.
-
-    loop_duration = 20000;
-    
-
-    
-    delay(1000);
-    while (stop_elbow==0){
-
-        activate_elbow();
-        captor_activation();
-        if(cpt_elbow_vit/40 < 3.14159/8){
-            vit_beta+=10;
-
-            // Micro asservissement. Si la vitesse DU BRAS (raison pour laquelle on divise la vitesse par 40) est inférieure à pi/4 rad.s-1, on accélère, sinon on ralentit.
-            
-        }
-        else{
-            vit_beta -= 10;
-        }
-        // Ce if suppose que la vitesse mesurée est positive stricte ! Et que du coup elle est dans le bon sens... 
-
-        if(vit_beta>=250){
-            vit_beta=0;
-            activate_elbow();
-            stop_elbow=1;
-            // Si la demande aux moteurs est trop forte, cela signifie qu'on a atteint un butoir : on arrête les moteurs et on sort de la boucle.
-        }
-        // Si les capteurs détectent une résistance suffisante pour limite arrêter le bras, on baisse fortement la vitesse.
-        
-        // Serial.print("Vit beta : ");
-        // Serial.print(vit_beta);
-        // Serial.print(" || ");
-        delay(20);
-    }
-
-    // On attend une autre seconde avant la seconde phase qui réinitialise le bras. On f'ait l'avant bras avant le bras car comme ça, l'avant bras étant proche du bras, le levier est moins important.
     delay(1000);
     while (stop_shoulder==0){
 
-
-
         activate_shoulder();
         captor_activation();
-        if( -cpt_shoulder_vit/40 < 3.14159/8){
-            vit_alpha-=10;
+        if(cpt_shoulder_vit/40 < 3.14159/4){
+            vit_alpha-=1;
             // Micro asservissement. Si la vitesse DU BRAS (raison pour laquelle on divise la vitesse par 40) est inférieure à pi/4 rad.s-1, on accélère, sinon on ralentit.
             // On accélère en diminuant car on cherche une vitesse négative : on tourne vers le bas.
         }
         else{
-            vit_alpha += 10;
+            vit_alpha += 1;
         }
         // Ce if suppose que la vitesse mesurée est positive stricte !
 
-        if(vit_alpha<=-250){
+        if(vit_alpha<-200){
             vit_alpha=0;
-            activate_shoulder();
             stop_shoulder=1;
             // Si la demande aux moteurs est trop forte, cela signifie qu'on a atteint un butoir : on arrête les moteurs et on sort de la boucle.
             // A terme, on pourrait faire ça avec un bouton de fin de butée
@@ -418,34 +347,41 @@ void reset(){
         // Si les capteurs détectent une résistance suffisante pour limite arrêter le bras, on baisse fortement la vitesse. 
 
         // Petite délai entre chaque étape de la boucle
-        Serial.print("Vit alpha : ");
-        Serial.print(vit_alpha);
-        Serial.print(" ||\n ");
-        delay(20);
-
+        delayMicroseconds(1000);
     }
-        
+
+    // On attend une autre seconde avant la seconde phase qui réinitialise l'avant bras.
+    delay(1000);
+    while (stop_elbow==0){
+
+        activate_elbow();
+        captor_activation();
+        if(cpt_elbow_vit/40 < 3.14159/4){
+            vit_beta+=1;
+            // Micro asservissement. Si la vitesse DU BRAS (raison pour laquelle on divise la vitesse par 40) est inférieure à pi/4 rad.s-1, on accélère, sinon on ralentit.
+            
+        }
+        else{
+            vit_beta -= 1;
+        }
+        // Ce if suppose que la vitesse mesurée est positive stricte ! Et que du coup elle est dans le bon sens... 
+
+        if(vit_beta>200){
+            vit_beta=0;
+            stop_elbow=1;
+            // Si la demande aux moteurs est trop forte, cela signifie qu'on a atteint un butoir : on arrête les moteurs et on sort de la boucle.
+        }
+        // Si les capteurs détectent une résistance suffisante pour limite arrêter le bras, on baisse fortement la vitesse.
+
+        delayMicroseconds(1000);
+    }
+
     robot->reset();
     // Réinitialise les données de position interne du robot. 
 }
 
-size_t strlcpy(char *dst, const char *src, size_t size)
-{
-    size_t len = 0;
-    while(size > 1 && *src)
-    {
-        *dst++ = *src++;
-        size--;
-        len++;
-    }
-    if(size > 0)
-        *dst = 0;
-    return len + strlen(src);    
-};
-// Fonction courte peremtant de mettre un char const dans un char[]
 
 
-int loop_count = 0;
 
 
 
@@ -459,11 +395,6 @@ void setup(){
     pinMode(rotationMotorPwm, OUTPUT);
     pinMode(rotationMotorDir, OUTPUT);
 
-    pinMode(shoulder_cpt, INPUT);
-    pinMode(shoulder_cpt_dir, INPUT);
-    // attachInterrupt(digitalPinToInterrupt(shoulder_cpt), updateShoulderEncoder, RISING);
-    encoderInit();
-
     pinMode(13, OUTPUT);
     // Init des mcc
 
@@ -472,76 +403,30 @@ void setup(){
     // pinMode(MotorPin3, OUTPUT); // Affectation de la sortie digitale n°10
     // pinMode(MotorPin4, OUTPUT); // Affectation de la sortie digitale n°11
     
-    // // Init du Stepper, vitesse de rotation en rpm. 
-    // stepperMotor->setSpeed(20);
+    // Init du Stepper, vitesse de rotation en rpm. 
+    stepperMotor.setSpeed(20);
 
-    // encoderInit();
-    // // Initialise les encodeurs
-
-    // vit_alpha = 100;
-
-    delay(3000);
-    // vit_beta = 100;
-    // // captor_activation();
-    // activate_elbow();
-    
-    // delay(1000);
-    // vit_alpha = 0;
-    // vit_beta = 0;
-    // loop_duration = 1000;
-    // captor_activation();
-    // activate_elbow();
-
-    
-
-    // delay(50000);
-    Serial.print("Starting going up before setup\n");
-
-    vit_beta = -100;
-    activate_elbow();
-    vit_alpha = +150;
-    activate_shoulder();
-    delay(3000);
-    Serial.print("Done. Starting Reset.\n");
-    vit_beta = 0;
-    activate_elbow();
-    vit_alpha = 0;
-    activate_shoulder();
-
-    reset();
-    Serial.print("Reset done.");
-
-    // delay(100000000);
-
-    
-
-    Serial.write("Started.\n");
-
-
-    
-    
-    
+    encoderInit();
+    // Initialise les encodeurs
 
 }
+
+
 
 void loop(){
 
 
-    // Serial.print("Entered loop");
-
-    // digitalWrite(13, HIGH);
-    // delay(1000);
-    // digitalWrite(13, LOW);
-    // delay(1000);
-    // Serial.write("Looping...");
+    digitalWrite(13, HIGH);
+    delay(1000);
+    digitalWrite(13, LOW);
+    delay(1000);
 
     previousMicros = currentMicros;
     currentMicros = micros();
     loop_duration = currentMicros - previousMicros;
-    
-    // Serial.write("Loop Duration : ");
-    // Serial.println(loop_duration / 1000);
-    // Serial.write(" ms\n");
+    Serial.write("Loop Duration : ");
+    Serial.write(1000 * (loop_duration));
+    Serial.write("\n");
     // True interval désigne le temps du tour précédent. 
     // Problème potentiel : la fonction micors() boucle après 70 minutes. Pour une boucle toutes les 70 minutes, loop_duration aura une valeur négative très élevée.
 
@@ -549,109 +434,50 @@ void loop(){
     // digitalWrite(enableBridge1,HIGH); // Active pont en H
     // digitalWrite(enableBridge2,HIGH); // Active pont en H
 
-    // Ce commentaire est totalement inutile.
-
-    
-
-
-    
 
 
     steps=0;
     // On réinitialise le nombre de steps à donner au stepper.
 
     // Réception des données serial
-    // if (Serial.available()){
+    if (Serial.available()){
 
 
-    //     buf[cur] = Serial.read();
-    //         if (buf[cur] != -1){
-    //             cur++;
-    //             buf[cur] = '\0';
-    //         }
-            
-            
-            
-    //         Serial.print(buf[cur - 1]); //debug
         
-        // Plan pour la démonstration : on va enregistrer différents messages serial qui seront changés régulièrement afin de créer un mouvement.
+        
+        if (buf[cur - 1] != '\n' && buf[cur - 1] != '\r'){
 
-        // Button = 0 pour x, button = 1 pour z
-
-        if (loop_count<2000){
-            strlcpy(buf, "Joystick X = 5, Joystick Y = 0, Wrist Angle is 0,  Button is 0, Reset is 0, joystick Max is : 10\n", 1024);
+            buf[cur] = Serial.read();
+            if (buf[cur] != -1)
+            cur++;
+            buf[cur] = '\0';
             
-            validBuf=true;
-        }
-        else if (loop_count<30){
-            strlcpy(buf, "Joystick X = 5, Joystick Y = 5, Wrist Angle is 0,  Button is 1, Reset is 0, joystick Max is : 10\n", 1024);
-            validBuf=true;
-        }
-        else if (loop_count<40){
-            strlcpy(buf, "Joystick X = 5, Joystick Y = 0, Wrist Angle is 0,  Button is 1, Reset is 0, joystick Max is : 10\n", 1024);
-            validBuf=true;
-        }
-        else if (loop_count<50){
-            strlcpy(buf, "Joystick X = 5, Joystick Y = 0, Wrist Angle is 0,  Button is 0, Reset is 0, joystick Max is : 10\n", 1024);
-            validBuf=true;
-        }
-        else if (loop_count<55){
-            strlcpy(buf, "Joystick X = -5, Joystick Y = 0, Wrist Angle is 0,  Button is 0, Reset is 0, joystick Max is : 10\n", 1024);
-            validBuf=true;
-        }
-        else if (loop_count<70){
-            strlcpy(buf, "Joystick X = -5, Joystick Y = -7, Wrist Angle is 0,  Button is 1, Reset is 0, joystick Max is : 10\n", 1024);
-            validBuf=true;
-        }
-        else if (loop_count<70){
-            strlcpy(buf, "Joystick X = -5, Joystick Y = -7, Wrist Angle is 0,  Button is 1, Reset is 0, joystick Max is : 10\n", 1024);
-            validBuf=true;
-        }
+            Serial.print(buf[cur - 1]); //debug
+
+        } 
         else {
-            strlcpy(buf, "Joystick X = 0, Joystick Y = 0, Wrist Angle is 0,  Button is 0, Reset is 1, joystick Max is : 10\n", 1024);
-            validBuf = true;
-            loop_count = 0;
-        }
-        Serial.print("Valeur du loop : ");
-        Serial.print(loop_count);
-        Serial.print("\n");
-
-
-        
-        if (buf[cur - 1] == '\n' || buf[cur - 1] == '\r') {
             Serial.write("Received buffer : ");
             Serial.write(buf);
             Serial.write("\n");
-            validBuf=true;
-        }
             
             // Si on a un \n, alors on a un message complet : on vérifie si on est dans un intervalle valide
             
-            if (currentMicros - previousMicrosSerial > serial_interval && validBuf){
-
-                // Joystick X = 5, Joystick Y = 0, Wrist Angle is 0,  Button is 0, Reset is 0, joystick Max is : 10\n
-                // Joystick X = %f, Joystick Y = %f, Wrist Angle is %d,  Button is %d, Reset is %d, joystick Max is : %f
+            if (currentMicros - previousMicrosSerial > serial_interval){
 
 
                 Serial.write("Entered buffer treatement\n");
             
                 // On est dans un intervalle valide, on active la mise à jour des données du robot.
                 Serial.write("Treatement buffer interval : ");
-                Serial.println((currentMicros - previousMicrosSerial)/1000);
+                Serial.write(1000*(currentMicros - previousMicrosSerial));
                 Serial.write("\n");
-                serial_loop_duration = currentMicros - previousMicrosSerial;
 
                 previousMicrosSerial = currentMicros;
 
 
                 // Déclenché si on repère qu'on a un serial complet
-                int resetDigit = robot->serial_processing(buf);
+                robot->serial_processing(buf);
                 // Processing du serial en données utilisables
-                
-
-                
-
-               
                 
                 
                 // Réinitialisation du buffer.
@@ -664,67 +490,54 @@ void loop(){
                 steps = robot->get_wrist_base_angle() * 360 / (2*3.141592) / step_angle - stepper_base;
                 // On ajoute au nombre de steps à effectuer la différence entre la ouvelle position voulue et l'ancienne sauvegardée. Ainsi, si la position ne change pas, on ne donne pas de commande au stepper.
 
-                // stepper_base = robot->get_wrist_base_angle() * 360 / (2*3.141592) / step_angle;
+                stepper_base = robot->get_wrist_base_angle() * 360 / (2*3.141592) / step_angle;
                 // Mise à jour du nombre de steps de base.
-                validBuf = false;
-                cur=0;
-                buf[cur]='\0';
-
-                if(resetDigit == 1){
-                    reset();
-                }
-
-                loop_count++;
+                
 
                 }
 
 
-            // buf[0]='\0';
-            // cur=0;
-            // Serial.write("Deleted Buf\n");
+            buf[0]='\0';
+            cur=0;
+            Serial.write("Deleted Buf\n");
             // On clear le buffer dès qu'il est plein pour ne pas rater les prochaines infos, qu'on les aie utilisées ou non.
 
             
+        }
         
-        
-    // }else{
-    //     Serial.print("Serial not available\n");
-    // }
-    
+    }
+
     // A cette étape, on a soit les nouvelles données pour x, y, z et les angles, soit les données précédentes. On peut donc procéder au mouvement.
+
     
 
     // Mouvements et asservissement : a lieu seulement tous les asserve_interval (~ 20ms )
 
+    if(currentMicros - previousMicros > asserve_interval){
+
+        // On récupère les données capteurs et on met à jour les données du robot.
+        captor_activation();
+
+        // Activation des moteurs avec la puissance donnée :
     
-
-    // On récupère les données capteurs et on met à jour les données du robot.
-    captor_activation();
-
-    Serial.print("Activation de l'asservissement, loop_duration : ");
-    Serial.print(loop_duration/1000);
-    Serial.print(" ms\n");
-
-    // Activation des moteurs avec la puissance donnée :
-
-    activate_shoulder();
-    activate_elbow();
-    activate_rotation();
+        // activate_shoulder();
+        // activate_elbow();
+        // activate_rotation();
 
 
-    steps += vit_beta / step_angle * 360 / (2*3.141592);
-    // activate_wrist(steps);
-    // L'angle donné au poignet est l'inverse de celui de l'avant bras. Il suffit de prendre la vitesse donnée à l'avant bras et de la convertir en steps pour avoir le mouvement du poignet pour qu'il reste stable.
-    // On fait un += pour si jamais l'angle de base change aussi. En théorie, les deux évènements sont séparés, mais au cas où.
+        steps += vit_beta / step_angle * 360 / (2*3.141592);
+        activate_wrist(steps);
+        // L'angle donné au poignet est l'inverse de celui de l'avant bras. Il suffit de prendre la vitesse donnée à l'avant bras et de la convertir en steps pour avoir le mouvement du poignet pour qu'il reste stable.
+        // On fait un += pour si jamais l'angle de base change aussi. En théorie, les deux évènements sont séparés, mais au cas où.
 
-    // Asservissement : 
-    // Si la vitesse mesurée est différente de la vitesse voulue (l'angle multiplié par la fréquence d'envoi des commandes), on modifie légèrement l'ordre donné aux moteurs
-    asserve_shoulder();
-    asserve_elbow();
+        // Asservissement : 
+        // Si la vitesse mesurée est différente de la vitesse voulue (l'angle multiplié par la fréquence d'envoi des commandes), on modifie légèrement l'ordre donné aux moteurs
+        asserve_shoulder();
+        asserve_elbow();
 
-    
+        
 
-    
+    }
 
     
 

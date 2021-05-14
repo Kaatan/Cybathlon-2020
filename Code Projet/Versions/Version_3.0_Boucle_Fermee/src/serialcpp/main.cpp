@@ -10,11 +10,14 @@
 #include "../headers/affichage.h"
 #include "../headers/variables.h"
 #include "../headers/fonctions.h"
+#include "serial.h"
 
 
-
-
-
+// for serial
+char serialData[256] = "";			// don't forget to pre-allocate memory
+            //printf("%s\n",incomingData);
+            int dataLength = 255;
+            int readResult = 0;
 
 int t1;
 int t2;
@@ -29,12 +32,18 @@ bool is_pressed = false;
 
 bool is_stop = false; //for main while
 
-bool clickmode = false;
+int clickmode = 0;
+// For button
 
-bool is_reset = true; //true en avance pour r�initialiser d�s le d�marrage et ainsi bien repartir de z�ro
+int is_reset = 0; //true en avance pour r�initialiser d�s le d�marrage et ainsi bien repartir de z�ro
 
 float x_input;
 float y_input;
+
+
+Serial* serial = new Serial("COM0");
+
+
 
 
 
@@ -61,25 +70,25 @@ int main(int argc, char** argv) {
     init(); //Initialise SDL et le Joystick
     
     //SDL_Surface* g_screenSurface;
-    SDL_Window* window;
+    // SDL_Window* window;
 
 
-    window = SDL_CreateWindow("Affichage", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        WIDTH, HEIGHT, SDL_WINDOW_SHOWN); //Cr�ation de la fen�tre vid�o
+    // window = SDL_CreateWindow("Affichage", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+    //     WIDTH, HEIGHT, SDL_WINDOW_SHOWN); //Cr�ation de la fen�tre vid�o
 
-    if (window == NULL) {
-        printf("Impossible de cr�er l'affichage de dimensions %dx%d : %s\n", WIDTH, HEIGHT, SDL_GetError());
-        SDL_Quit();
-        return -1;  
-    }
+    // if (window == NULL) {
+    //     printf("Impossible de cr�er l'affichage de dimensions %dx%d : %s\n", WIDTH, HEIGHT, SDL_GetError());
+    //     SDL_Quit();
+    //     return -1;  
+    // }
 
-    sdlRenderer = SDL_CreateRenderer(window, -1, 0); //Cr�ation d'un truc pour render
+    // sdlRenderer = SDL_CreateRenderer(window, -1, 0); //Cr�ation d'un truc pour render
 
-    if (sdlRenderer == NULL) {
-        printf("Impossible de cr�er le renderer de dimensions %dx%d : %s\n", WIDTH, HEIGHT, SDL_GetError());
-        SDL_Quit();
-        return -1;
-    }
+    // if (sdlRenderer == NULL) {
+    //     printf("Impossible de cr�er le renderer de dimensions %dx%d : %s\n", WIDTH, HEIGHT, SDL_GetError());
+    //     SDL_Quit();
+    //     return -1;
+    // }
 
     //SDL affichage
 
@@ -96,35 +105,35 @@ int main(int argc, char** argv) {
         t1 = clock(); //d�but du chrono
         //std::cout << "\n" << t1 << std::endl;
 
-        if (is_reset) { //si le syst�me est en reset, on attend la fin du reset
-            std::cout << "Resetting ...\n";
-            t1 = clock();
+        // if (is_reset) { //si le syst�me est en reset, on attend la fin du reset
+        //     std::cout << "Resetting ...\n";
+        //     t1 = clock();
             
             
-            SDL_SetRenderDrawColor(sdlRenderer, 0, 0, 0, 255);//sdlrenderer d�fini depuis afichage.h
-            if (SDL_RenderClear(sdlRenderer) != 0) { //On peint tout
-                printf("Erreur de coloration\n");
+        //     SDL_SetRenderDrawColor(sdlRenderer, 0, 0, 0, 255);//sdlrenderer d�fini depuis afichage.h
+        //     if (SDL_RenderClear(sdlRenderer) != 0) { //On peint tout
+        //         printf("Erreur de coloration\n");
 
-            }
-            reset(is_reset, x, y, z, eta);
+        //     }
+        //     reset(is_reset, x, y, z, eta);
 
             
 
-            renderThickLine(X_BASE, Z_BASE, X_SHOULDER, Z_SHOULDER);
-            renderPivot(X_BASE, Z_BASE);
-            renderPivot(X_SHOULDER, Z_SHOULDER); //Affichage des membres de base (bras et �paule)
-            SDL_RenderPresent(sdlRenderer);//mise � jour de l'�cran
+        //     // renderThickLine(X_BASE, Z_BASE, X_SHOULDER, Z_SHOULDER);
+        //     // renderPivot(X_BASE, Z_BASE);
+        //     // renderPivot(X_SHOULDER, Z_SHOULDER); //Affichage des membres de base (bras et �paule)
+        //     // SDL_RenderPresent(sdlRenderer);//mise � jour de l'�cran
 
-            t2 = clock();
+        //     t2 = clock();
 
-            if ((float)delta / CLOCKS_PER_SEC < (float)(1 / fps)) {
-                //std::cout<<"\nblub delay\n";
-                delay(CLOCKS_PER_SEC / fps - delta);
+        //     if ((float)delta / CLOCKS_PER_SEC < (float)(1 / fps)) {
+        //         //std::cout<<"\nblub delay\n";
+        //         delay(CLOCKS_PER_SEC / fps - delta);
 
-            } //pour avoir du 60 fps
+        //     } //pour avoir du 60 fps
 
 
-        }
+        // }
         else {//sinon
 
 
@@ -187,8 +196,8 @@ int main(int argc, char** argv) {
                             }
                         }
                     }
-                    x_input = x_input / 32768 * MAX_INPUT;
-                    y_input = y_input / 32768 * MAX_INPUT;
+                    // x_input = x_input / 32768 * MAX_INPUT;
+                    // y_input = y_input / 32768 * MAX_INPUT;
                 }
 
 
@@ -214,10 +223,10 @@ int main(int argc, char** argv) {
                         //std::cout << "Released !\n";
 
                         if (!clickmode) {
-                            clickmode = true;
+                            clickmode = 1;
                         }
                         else {
-                            clickmode = false;
+                            clickmode = 0;
                         }
                         is_pressed = false;
                     }
@@ -234,37 +243,37 @@ int main(int argc, char** argv) {
             
             
 
-            SDL_SetRenderDrawColor(sdlRenderer, 0, 0, 0, 255);//sdlrenderer d�fini depuis afichage.h
+            // SDL_SetRenderDrawColor(sdlRenderer, 0, 0, 0, 255);//sdlrenderer d�fini depuis afichage.h
 
-            if (SDL_RenderClear(sdlRenderer) != 0) { //On peint tout
-                printf("Erreur de coloration\n");
+            // if (SDL_RenderClear(sdlRenderer) != 0) { //On peint tout
+            //     printf("Erreur de coloration\n");
 
-            }
+            // }
 
-            renderThickLine(X_BASE, Z_BASE, X_SHOULDER, Z_SHOULDER);
-            renderPivot(X_BASE, Z_BASE);
-            renderPivot(X_SHOULDER, Z_SHOULDER); //Affichage des membres de base (bras et �paule)
+            // renderThickLine(X_BASE, Z_BASE, X_SHOULDER, Z_SHOULDER);
+            // renderPivot(X_BASE, Z_BASE);
+            // renderPivot(X_SHOULDER, Z_SHOULDER); //Affichage des membres de base (bras et �paule)
 
             
             
             
 
-            if (clickmode) {
-                Input_Processing(0, y_input, x_input, x, y, z, eta);
-            }
-            else{
-                Input_Processing(x_input, y_input, 0, x, y, z, eta);
-                //std::cout << x_input << " " << y_input << std::endl;
-            }
+            // if (clickmode) {
+            //     Input_Processing(0, y_input, x_input, x, y, z, eta);
+            // }
+            // else{
+            //     Input_Processing(x_input, y_input, 0, x, y, z, eta);
+            //     //std::cout << x_input << " " << y_input << std::endl;
+            // }
 
-            if ((((float)(t2 - press_time) / CLOCKS_PER_SEC) > MAX_PRESS_TIME) && is_pressed) {
+            // if ((((float)(t2 - press_time) / CLOCKS_PER_SEC) > MAX_PRESS_TIME) && is_pressed) {
 
-                is_stop = true;
-                std::cout << "End of Programm\n";
+            //     is_stop = true;
+            //     std::cout << "End of Programm\n";
 
-            } //Maintenir le bouton sort du programme. 
+            // } //Maintenir le bouton sort du programme. 
 
-            SDL_RenderPresent(sdlRenderer);//mise � jour de l'�cran
+            // SDL_RenderPresent(sdlRenderer);//mise � jour de l'�cran
 
             t2 = clock();
             //std::cout << t2 << std::endl;
@@ -281,14 +290,27 @@ int main(int argc, char** argv) {
                 
             } //pour avoir du 60 fps
 
+
+            sprintf(serialData, "Joystick X = %f, Joystick Y = %f, Button is %d, Reset is %d, joystick Max is : %f", input_x, input_y, clickmode, is reset, 32768);
+
+            
+            
+            serial.WriteData("Joystick X = %f, Joystick Y = %f, Button is %d, Reset is %d, joystick Max is : %f\n", 100);
+
+
+            std::cout <<"Sent" << serialData<<std::endl;
+
+            if (clickmode = 1){
+                clickmode = 0;
+            }
+
             
 
-
             
 
-            std::cout << "\r" << std::setprecision(1) << std::fixed << std::setw(4) << x << " "
-                << std::setprecision(1) << std::fixed << std::setw(4) << y << " "
-                << std::setprecision(1) << std::fixed << std::setw(4) << z; //Affichage des coordonn�es
+            // std::cout << "\r" << std::setprecision(1) << std::fixed << std::setw(4) << x << " "
+            //     << std::setprecision(1) << std::fixed << std::setw(4) << y << " "
+            //     << std::setprecision(1) << std::fixed << std::setw(4) << z; //Affichage des coordonn�es
 
         }
     }

@@ -22,9 +22,11 @@ class Arm {
         // Gamma est potentiellement inutile.
 
         float alpha_p, beta_p, eta_p;
-        // Stockage pour les valeurs précédentes des angles. Potentiellement inutiles.
+        // Stockage pour les valeurs précédentes des angles. 
 
-        float cpt_alpha, cpt_beta, cpt_eta;
+        int wrist_base_angle;
+
+        float cpt_alpha, cpt_beta;
         // Valeurs de stockage pour les valeurs données par les capteurs. Ces valeurs seront ensuites comparées au valeurs voulues pendant l'asservissement.
 
         float arm, forearm, wrist;
@@ -43,17 +45,16 @@ class Arm {
         // Constructeur. A utiliser une fois au démarrage du robot pour initialiser les valeurs. 
         // Les seules valeurs à fixer avec le constructeur sont les valeurs des longueurs.
 
-        void init();
 
         void reset();
         // Méthode pour réinitialiser le robot
 
-        void serial_processing(char* str);
+        float serial_processing(char* str);
         // Analyse le serial pour en tirer les valeurs nécessaires. Traite ces valeurs pour qu'elles soient exploitables => les valeurs des inputs sont traduites en déplacement voulu.
         // A appeler avant input_processing. 
         // Modifie donc les valeurs du bras
 
-        void captor_update(float cpt_alpha, float cpt_beta);
+        void captor_update(float alpha_change, float beta_change);
         // Reçoit les valeurs des capteurs et met à jour toutes les données nécessaires dans la classe :  les angles des capteurs, mais aussi la position du robot en fonction des capteurs.
         // A lancer avant l'input processing pour éviter un décalage entre le calcul et la réalité, mais également à chaque tour de boucle pour l'asservissement.
 
@@ -65,7 +66,19 @@ class Arm {
         // Enregistre également les anciennes valeurs (pour le moment dans les portions dédiées de la classe.) 
         // Cette fonction sert lors de la réception des inputs du serial.
 
+        // Renvoie la différence entre alpha et alpha_p
+        float get_alpha_diff();
+
+        // Renvoie la différence entre beta et beta_p
+        float get_beta_diff();
+
+        // Renvoie la différence entre la position enegistrée par le capteur et beta_p. Sert pour le poignet.
+        float get_real_beta_diff();
+
+        int get_wrist_base_angle();
+
 };
 
+int signof(float a);
 
 #endif
